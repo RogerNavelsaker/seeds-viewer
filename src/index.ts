@@ -9,32 +9,41 @@ const program = new Command();
 
 program
 	.name("seeds-viewer")
-	.description("Standalone graph triage for seeds issues")
-	.option("-d, --dir <path>", "Directory containing .seeds", ".")
+	.description("CLI tool for seeds graph analysis, designed for agents and tools.")
+	.option("-d, --dir <path>", "Directory containing .seeds", ".");
+
+async function loadIssues(dir: string): Promise<Issue[]> {
+	const seedsDir = path.resolve(dir, ".seeds");
+	const issuesFile = path.join(seedsDir, "issues.jsonl");
+
+	let content: string;
+	try {
+		content = await fs.readFile(issuesFile, "utf-8");
+	} catch (error) {
+		console.error(`Error reading ${issuesFile}: ${(error as Error).message}`);
+		process.exit(1);
+	}
+
+	const issues: Issue[] = [];
+	for (const line of content.split("\n")) {
+		if (!line.trim()) continue;
+		try {
+			issues.push(JSON.parse(line));
+		} catch (e) {
+			console.error("Failed to parse line:", line);
+		}
+	}
+	return issues;
+}
+
+program
+	.command("triage")
+	.description("Rank ready issues using graph algorithms (PageRank, betweenness, critical path)")
 	.option("--json", "Output as JSON")
 	.option("--limit <n>", "Return top N issues only")
 	.action(async (opts) => {
-		const seedsDir = path.resolve(opts.dir, ".seeds");
-		const issuesFile = path.join(seedsDir, "issues.jsonl");
-
-		let content: string;
-		try {
-			content = await fs.readFile(issuesFile, "utf-8");
-		} catch (error) {
-			console.error(`Error reading ${issuesFile}: ${(error as Error).message}`);
-			process.exit(1);
-		}
-
-		const issues: Issue[] = [];
-		for (const line of content.split("\n")) {
-			if (!line.trim()) continue;
-			try {
-				issues.push(JSON.parse(line));
-			} catch (e) {
-				console.error("Failed to parse line:", line);
-			}
-		}
-
+		const issues = await loadIssues(program.opts().dir);
+		
 		const closedIds = new Set(issues.filter((i) => i.status === "closed").map((i) => i.id));
 		const openIssues = issues.filter((i) => i.status !== "closed");
 
@@ -80,6 +89,39 @@ program
 			console.log(`    score: ${scoreStr}${cpStr}${bStr}`);
 		}
 		console.log(`\n${output.length} ready issue(s) (ranked by graph score)`);
+	});
+
+program
+	.command("graph")
+	.description("Export the dependency graph as a Graphviz DOT string")
+	.option("--open-only", "Only include open issues")
+	.action(async (opts) => {
+		let issues = await loadIssues(program.opts().dir);
+		
+		if (opts.openOnly) {
+			issues = issues.filter((i) => i.status !== "closed");
+		}
+
+		console.log("digraph G {");
+		console.log('  node [shape="box", style="rounded"];');
+		console.log('  rankdir="LR";');
+
+		const ids = new Set(issues.map((i) => i.id));
+
+		for (const issue of issues) {
+			const label = `${issue.id}\\n${issue.title}\\n[${issue.status}]`.replace(/"/g, '\\"');
+			console.log(`  "${issue.id}" [label="${label}"];`);
+		}
+
+		for (const issue of issues) {
+			for (const blocked of issue.blocks ?? []) {
+				if (ids.has(blocked)) {
+					console.log(`  "${issue.id}" -> "${blocked}";`);
+				}
+			}
+		}
+
+		console.log("}");
 	});
 
 program.parse();
