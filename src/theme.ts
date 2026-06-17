@@ -19,14 +19,17 @@ export const theme = {
 		rgb(colors.mossGreen[0], colors.mossGreen[1], colors.mossGreen[2], text),
 	secondary: (text: string | number) =>
 		rgb(colors.earthBrown[0], colors.earthBrown[1], colors.earthBrown[2], text),
-	accent: (text: string | number) =>
-		rgb(colors.leafGreen[0], colors.leafGreen[1], colors.leafGreen[2], text),
-	success: (text: string | number) =>
-		rgb(colors.brightGreen[0], colors.brightGreen[1], colors.brightGreen[2], text),
-	warning: (text: string | number) =>
-		rgb(colors.sunlight[0], colors.sunlight[1], colors.sunlight[2], text),
-	error: (text: string | number) => rgb(colors.rust[0], colors.rust[1], colors.rust[2], text),
-	muted: (text: string | number) => rgb(colors.stone[0], colors.stone[1], colors.stone[2], text),
-	text: (text: string | number) => rgb(colors.cloud[0], colors.cloud[1], colors.cloud[2], text),
+	accent: (text: string | number) => `\x1b[38;2;255;183;77m${text}\x1b[0m`,
+	muted: (text: string | number) => `\x1b[38;2;120;120;110m${text}\x1b[0m`,
+	success: (text: string | number) => `\x1b[32m${text}\x1b[0m`,
+	warning: (text: string | number) => `\x1b[33m${text}\x1b[0m`,
+	error: (text: string | number) => `\x1b[31m${text}\x1b[0m`,
+	info: (text: string | number) => `\x1b[36m${text}\x1b[0m`,
+	dim: (text: string | number) => `\x1b[2m${text}\x1b[0m`,
 	bold: (text: string | number) => `\x1b[1m${text}\x1b[0m`,
+	msgSuccess: (text: string | number) =>
+		`${rgb(colors.mossGreen[0], colors.mossGreen[1], colors.mossGreen[2], "\x1b[1m✓\x1b[0m")} ${rgb(colors.mossGreen[0], colors.mossGreen[1], colors.mossGreen[2], text)}`,
+	msgWarn: (text: string | number) => `\x1b[33m\x1b[1m!\x1b[0m \x1b[33m${text}\x1b[0m`,
+	msgError: (text: string | number) => `\x1b[31m\x1b[1m✗\x1b[0m \x1b[31m${text}\x1b[0m`,
+	msgInfo: (text: string | number) => `\x1b[2m  ${text}\x1b[0m`,
 };

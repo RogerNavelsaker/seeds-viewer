@@ -10,10 +10,54 @@ import type { Issue } from "./types.ts";
 const program = new Command();
 
 program
-	.name("terrarium")
+	.name("trm")
 	.version("0.1.0")
 	.description("CLI tool for seeds graph analysis, designed for agents and tools.")
-	.option("-d, --dir <path>", "Directory containing .seeds", ".");
+	.option("-d, --dir <path>", "Directory containing .seeds", ".")
+	.configureHelp({
+		formatHelp: (cmd, _helper) => {
+			const B = "\x1b[1m";
+			const R = "\x1b[0m";
+			const D = "\x1b[2m";
+			const brand = "\x1b[38;2;85;139;47m"; // moss green
+			const g = "\x1b[32m"; // success green
+
+			let help = "";
+			const version = cmd.parent ? cmd.parent.version() : cmd.version();
+			help += `${brand}${B}terrarium${R} ${D}v${version || "0.1.0"}${R} — graph analysis and dependency tree tool\n\n`;
+
+			const isSub = !!cmd.parent;
+			const usage = isSub ? `trm ${cmd.name()} [options]` : `trm <command> [options]`;
+			help += `${B}Usage:${R} ${usage}\n\n`;
+
+			if (cmd.commands.length > 0) {
+				help += `${B}Commands:${R}\n`;
+				cmd.commands.forEach((c) => {
+					const name = c.name();
+					const desc = c.description();
+					const pad = " ".repeat(Math.max(0, 20 - name.length));
+					help += `  ${g}${name}${R}${pad}${desc}\n`;
+				});
+				help += `\n`;
+			}
+
+			if (cmd.options.length > 0) {
+				help += `${B}Options:${R}\n`;
+				cmd.options.forEach((o) => {
+					const flags = o.flags;
+					const desc = o.description;
+					const pad = " ".repeat(Math.max(0, 20 - flags.length));
+					help += `  ${D}${flags}${R}${pad}${desc}\n`;
+				});
+				help += `\n`;
+			}
+
+			if (!isSub) {
+				help += `Run ${D}trm <command> --help${R} for command-specific help.\n`;
+			}
+			return help;
+		},
+	});
 
 async function loadIssues(dir: string): Promise<Issue[]> {
 	const seedsDir = path.resolve(dir, ".seeds");
@@ -22,8 +66,8 @@ async function loadIssues(dir: string): Promise<Issue[]> {
 	let content: string;
 	try {
 		content = await fs.readFile(issuesFile, "utf-8");
-	} catch (error) {
-		console.error(`Error reading ${issuesFile}: ${(error as Error).message}`);
+	} catch (_error) {
+		console.error(theme.msgError(`Config not found — run sd init (reading ${issuesFile})`));
 		process.exit(1);
 	}
 
@@ -97,7 +141,9 @@ program
 			console.log(`${theme.bold(entry.id)} (${entry.status}) - ${entry.title}`);
 			console.log(`    score: ${theme.accent(scoreStr)}${theme.muted(cpStr)}${theme.muted(bStr)}`);
 		}
-		console.log(`\n${theme.success(`${output.length} ready issue(s)`)} (ranked by graph score)`);
+		console.log(
+			`\n${theme.msgSuccess(`${output.length} ready issue(s)`)} ${theme.muted("(ranked by graph score)")}`,
+		);
 	});
 
 program
@@ -259,7 +305,7 @@ program
 		}
 
 		if (roots.length === 0 && issues.length > 0) {
-			console.log(theme.error("Graph has cycles and no roots. Showing arbitrary nodes."));
+			console.log(theme.msgWarn("Graph has cycles and no roots. Showing arbitrary nodes."));
 			roots.push(issues[0]);
 		}
 
@@ -436,7 +482,7 @@ program
 				stdio: ["pipe", "pipe", "ignore"],
 			});
 		} catch (_e) {
-			console.error(theme.error(`Failed to read issues.jsonl from ref: ${ref}`));
+			console.error(theme.msgError(`Failed to read issues.jsonl from ref: ${ref}`));
 			process.exit(1);
 		}
 
@@ -489,17 +535,17 @@ program
 
 		console.log(theme.bold(`Graph Diff (Current vs ${ref})\n`));
 		if (added.length) {
-			console.log(theme.success(`Added (${added.length})`));
+			console.log(theme.msgSuccess(`Added (${added.length})`));
 			for (const i of added) console.log(`  + ${i.id}: ${i.title}`);
 			console.log();
 		}
 		if (removed.length) {
-			console.log(theme.error(`Removed (${removed.length})`));
+			console.log(theme.msgError(`Removed (${removed.length})`));
 			for (const i of removed) console.log(`  - ${i.id}: ${i.title}`);
 			console.log();
 		}
 		if (changed.length) {
-			console.log(theme.warning(`Changed (${changed.length})`));
+			console.log(theme.msgWarn(`Changed (${changed.length})`));
 			for (const i of changed) {
 				const statusChange =
 					i.oldStatus !== i.newStatus ? ` [${i.oldStatus} -> ${i.newStatus}]` : "";
