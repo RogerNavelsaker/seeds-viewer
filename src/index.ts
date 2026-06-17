@@ -266,4 +266,128 @@ program
 		}
 	});
 
+program
+	.command("kanban")
+	.description("Print a kanban-style board of issues by status")
+	.option("--json", "Output as JSON")
+	.action(async (opts) => {
+		const issues = await loadIssues(program.opts().dir);
+
+		const columns = new Map<string, typeof issues>();
+		for (const issue of issues) {
+			const status = issue.status || "open";
+			if (!columns.has(status)) columns.set(status, []);
+			columns.get(status)?.push(issue);
+		}
+
+		// Standard order: open, in_progress, blocked, closed
+		const standardStatuses = ["open", "in_progress", "blocked", "closed"];
+		const allStatuses = Array.from(columns.keys());
+		const sortedStatuses = [...new Set([...standardStatuses, ...allStatuses])].filter((s) =>
+			columns.has(s),
+		);
+
+		if (opts.json) {
+			const jsonOutput: Record<string, typeof issues> = {};
+			for (const status of sortedStatuses) {
+				jsonOutput[status] = columns.get(status) ?? [];
+			}
+			console.log(
+				JSON.stringify({ success: true, command: "kanban", columns: jsonOutput }, null, 2),
+			);
+			return;
+		}
+
+		for (const status of sortedStatuses) {
+			const colIssues = columns.get(status) ?? [];
+			const title = status.replace(/_/g, " ").toUpperCase();
+			console.log(`\x1b[1m\x1b[35m${title} (${colIssues.length})\x1b[0m`);
+			for (const issue of colIssues) {
+				const prioStr = issue.priority ? ` \x1b[33m[P${issue.priority}]\x1b[0m` : "";
+				console.log(`  \x1b[1m${issue.id}\x1b[0m${prioStr} - ${issue.title}`);
+			}
+			console.log("");
+		}
+	});
+
+program
+	.command("plan")
+	.description("Generate an execution plan dividing work into parallel tracks")
+	.option("--json", "Output as JSON")
+	.action(async (opts) => {
+		const issues = await loadIssues(program.opts().dir);
+		const closedIds = new Set(issues.filter((i) => i.status === "closed").map((i) => i.id));
+		const openIssues = issues.filter((i) => i.status !== "closed");
+
+		const tracks: (typeof issues)[] = [];
+		const resolved = new Set(closedIds);
+		let remaining = [...openIssues];
+
+		while (remaining.length > 0) {
+			const currentTrack = remaining.filter((i) =>
+				(i.blockedBy ?? []).every((bid) => resolved.has(bid)),
+			);
+			if (currentTrack.length === 0) {
+				// Cycle detected, the rest cannot be planned
+				tracks.push(remaining); // Push remaining as the final blocked track
+				break;
+			}
+			tracks.push(currentTrack);
+			for (const i of currentTrack) resolved.add(i.id);
+			remaining = remaining.filter((i) => !resolved.has(i.id));
+		}
+
+		if (opts.json) {
+			const jsonTracks = tracks.map((track) =>
+				track.map((i) => ({
+					id: i.id,
+					title: i.title,
+					unblocks: i.blocks ?? [],
+				})),
+			);
+			console.log(
+				JSON.stringify({ success: true, command: "plan", plan: { tracks: jsonTracks } }, null, 2),
+			);
+			return;
+		}
+
+		console.log("\x1b[1mExecution Plan (Topological Tracks)\x1b[0m\n");
+		for (let i = 0; i < tracks.length; i++) {
+			console.log(`\x1b[35mTrack ${i}\x1b[0m (Parallelizable)`);
+			for (const issue of tracks[i]) {
+				console.log(`  \x1b[1m${issue.id}\x1b[0m - ${issue.title}`);
+			}
+			console.log("");
+		}
+	});
+
+program
+	.command("insights")
+	.description("Output comprehensive graph metrics (agent-friendly)")
+	.option("--json", "Output as JSON")
+	.action(async (opts) => {
+		const issues = await loadIssues(program.opts().dir);
+		const openIssues = issues.filter((i) => i.status !== "closed");
+		const metrics = computeMetrics(openIssues);
+
+		if (opts.json) {
+			const jsonMetrics: Record<string, unknown> = {};
+			for (const [id, m] of metrics) {
+				jsonMetrics[id] = m;
+			}
+			console.log(
+				JSON.stringify(
+					{ success: true, command: "insights", status: "computed", metrics: jsonMetrics },
+					null,
+					2,
+				),
+			);
+			return;
+		}
+
+		console.log(
+			"Insights are best consumed via --json by agents. For human-readable insights, use:\n  tr graph --bottlenecks\n  tr graph --critical-path",
+		);
+	});
+
 program.parse();
