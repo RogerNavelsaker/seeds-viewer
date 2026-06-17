@@ -1,8 +1,10 @@
 #!/usr/bin/env bun
+import { execSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { Command } from "commander";
 import { computeMetrics } from "./graph.ts";
+import { theme } from "./theme.ts";
 import type { Issue } from "./types.ts";
 
 const program = new Command();
@@ -92,10 +94,10 @@ program
 			const scoreStr = `${(entry.score * 100).toFixed(0)}pts`;
 			const cpStr = entry.criticalPathLength > 0 ? ` · cp:${entry.criticalPathLength}` : "";
 			const bStr = entry.betweenness > 0.01 ? ` · btw:${entry.betweenness.toFixed(2)}` : "";
-			console.log(`\x1b[1m${entry.id}\x1b[0m (${entry.status}) - ${entry.title}`);
-			console.log(`    score: \x1b[36m${scoreStr}\x1b[0m${cpStr}${bStr}`);
+			console.log(`${theme.bold(entry.id)} (${entry.status}) - ${entry.title}`);
+			console.log(`    score: ${theme.accent(scoreStr)}${theme.muted(cpStr)}${theme.muted(bStr)}`);
 		}
-		console.log(`\n\x1b[32m${output.length} ready issue(s)\x1b[0m (ranked by graph score)`);
+		console.log(`\n${theme.success(`${output.length} ready issue(s)`)} (ranked by graph score)`);
 	});
 
 program
@@ -158,10 +160,10 @@ program
 				.map((i) => ({ ...i, betweenness: metrics.get(i.id)?.betweenness ?? 0 }))
 				.filter((i) => i.betweenness > 0)
 				.sort((a, b) => b.betweenness - a.betweenness);
-			console.log("\x1b[1mTop Bottlenecks (Betweenness Centrality)\x1b[0m\n");
+			console.log(theme.bold("Top Bottlenecks (Betweenness Centrality)\n"));
 			for (const issue of ranked.slice(0, 10)) {
 				console.log(
-					`\x1b[36m${issue.betweenness.toFixed(4)}\x1b[0m - \x1b[1m${issue.id}\x1b[0m ${issue.title}`,
+					`${theme.accent(issue.betweenness.toFixed(4))} - ${theme.bold(issue.id)} ${issue.title}`,
 				);
 			}
 			if (ranked.length === 0) console.log("No significant bottlenecks found.");
@@ -183,7 +185,7 @@ program
 				console.log("No critical path found.");
 				return;
 			}
-			console.log(`\x1b[1mCritical Path (Length: ${maxLen})\x1b[0m\n`);
+			console.log(theme.bold(`Critical Path (Length: ${maxLen})\n`));
 			const blocksMap = new Map<string, string[]>();
 			for (const issue of issues) blocksMap.set(issue.id, issue.blocks ?? []);
 
@@ -191,7 +193,7 @@ program
 			while (curr) {
 				const issue = issues.find((i) => i.id === curr);
 				if (!issue) break;
-				console.log(`\x1b[32m↓\x1b[0m \x1b[1m${issue.id}\x1b[0m ${issue.title}`);
+				console.log(`${theme.success("↓")} ${theme.bold(issue.id)} ${issue.title}`);
 				const children = blocksMap.get(curr) ?? [];
 				if (children.length === 0) break;
 
@@ -234,11 +236,13 @@ program
 			const hasVisited = visited.has(issueId);
 
 			// Color open/closed status
-			const statusColor = issue.status === "closed" ? "\x1b[90m" : "\x1b[32m";
-			const statusStr = `${statusColor}(${issue.status})\x1b[0m`;
+			const statusStr =
+				issue.status === "closed"
+					? theme.muted(`(${issue.status})`)
+					: theme.success(`(${issue.status})`);
 
 			console.log(
-				`${prefix}${connector}\x1b[1m${issue.id}\x1b[0m ${statusStr} - ${issue.title}${hasVisited ? " \x1b[33m(already shown)\x1b[0m" : ""}`,
+				`${prefix}${connector}${theme.bold(issue.id)} ${statusStr} - ${issue.title}${hasVisited ? ` ${theme.warning("(already shown)")}` : ""}`,
 			);
 
 			if (hasVisited) return;
@@ -255,7 +259,7 @@ program
 		}
 
 		if (roots.length === 0 && issues.length > 0) {
-			console.log("\x1b[31mGraph has cycles and no roots. Showing arbitrary nodes.\x1b[0m");
+			console.log(theme.error("Graph has cycles and no roots. Showing arbitrary nodes."));
 			roots.push(issues[0]);
 		}
 
@@ -301,10 +305,10 @@ program
 		for (const status of sortedStatuses) {
 			const colIssues = columns.get(status) ?? [];
 			const title = status.replace(/_/g, " ").toUpperCase();
-			console.log(`\x1b[1m\x1b[35m${title} (${colIssues.length})\x1b[0m`);
+			console.log(theme.bold(theme.primary(`${title} (${colIssues.length})`)));
 			for (const issue of colIssues) {
-				const prioStr = issue.priority ? ` \x1b[33m[P${issue.priority}]\x1b[0m` : "";
-				console.log(`  \x1b[1m${issue.id}\x1b[0m${prioStr} - ${issue.title}`);
+				const prioStr = issue.priority ? ` ${theme.warning(`[P${issue.priority}]`)}` : "";
+				console.log(`  ${theme.bold(issue.id)}${prioStr} - ${issue.title}`);
 			}
 			console.log("");
 		}
@@ -351,13 +355,160 @@ program
 			return;
 		}
 
-		console.log("\x1b[1mExecution Plan (Topological Tracks)\x1b[0m\n");
+		console.log(theme.bold("Execution Plan (Topological Tracks)\n"));
 		for (let i = 0; i < tracks.length; i++) {
-			console.log(`\x1b[35mTrack ${i}\x1b[0m (Parallelizable)`);
+			console.log(`${theme.primary(`Track ${i}`)} (Parallelizable)`);
 			for (const issue of tracks[i]) {
-				console.log(`  \x1b[1m${issue.id}\x1b[0m - ${issue.title}`);
+				console.log(`  ${theme.bold(issue.id)} - ${issue.title}`);
 			}
 			console.log("");
+		}
+	});
+
+program
+	.command("priority")
+	.description("Suggest priority changes based on graph topology vs user priority")
+	.option("--json", "Output as JSON")
+	.action(async (opts) => {
+		const issues = await loadIssues(program.opts().dir);
+		const openIssues = issues.filter((i) => i.status !== "closed");
+		const analysis = computeMetrics(openIssues);
+
+		const ranked = [...openIssues].sort(
+			(a, b) => (analysis.metrics.get(b.id)?.score ?? 0) - (analysis.metrics.get(a.id)?.score ?? 0),
+		);
+
+		const suggestions = [];
+		for (let i = 0; i < ranked.length; i++) {
+			const issue = ranked[i];
+			const currentPriority = issue.priority || 5;
+
+			const percentile = i / ranked.length;
+			let suggested = 5;
+			if (percentile < 0.1) suggested = 1;
+			else if (percentile < 0.3) suggested = 2;
+			else if (percentile < 0.6) suggested = 3;
+			else if (percentile < 0.8) suggested = 4;
+
+			if (suggested !== currentPriority) {
+				suggestions.push({
+					id: issue.id,
+					title: issue.title,
+					current: currentPriority,
+					suggested,
+					reason:
+						suggested < currentPriority ? "High topological impact" : "Low topological impact",
+				});
+			}
+		}
+
+		if (opts.json) {
+			console.log(JSON.stringify({ success: true, command: "priority", suggestions }, null, 2));
+			return;
+		}
+
+		console.log(theme.bold("Priority Suggestions (Topology vs User Priority)\n"));
+		for (const sug of suggestions) {
+			const upgrade = sug.suggested < sug.current;
+			const color = upgrade ? theme.error : theme.muted;
+			console.log(`${theme.bold(sug.id)} - ${sug.title}`);
+			console.log(
+				`  Current: P${sug.current} -> Suggested: ${color(`P${sug.suggested}`)} (${sug.reason})`,
+			);
+		}
+	});
+
+program
+	.command("diff")
+	.description("Compare the graph state against a previous git ref")
+	.argument("<ref>", "Git ref to compare against (e.g. HEAD~1)")
+	.option("--json", "Output as JSON")
+	.action(async (ref, opts) => {
+		const dir = program.opts().dir;
+		const seedsDir = path.resolve(dir, ".seeds");
+		const issuesFile = path.join(seedsDir, "issues.jsonl");
+		const relativePath = path.relative(dir, issuesFile) || ".seeds/issues.jsonl";
+
+		let oldContent = "";
+		try {
+			oldContent = execSync(`git -C ${dir} show ${ref}:${relativePath}`, {
+				encoding: "utf-8",
+				stdio: ["pipe", "pipe", "ignore"],
+			});
+		} catch (_e) {
+			console.error(theme.error(`Failed to read issues.jsonl from ref: ${ref}`));
+			process.exit(1);
+		}
+
+		const oldIssues: Issue[] = [];
+		for (const line of oldContent.split("\n")) {
+			if (!line.trim()) continue;
+			try {
+				oldIssues.push(JSON.parse(line));
+			} catch (_e) {}
+		}
+
+		const currentIssues = await loadIssues(dir);
+
+		const oldMap = new Map(oldIssues.map((i) => [i.id, i]));
+		const currentMap = new Map(currentIssues.map((i) => [i.id, i]));
+
+		const added = [];
+		const removed = [];
+		const changed = [];
+
+		for (const [id, curr] of currentMap) {
+			const old = oldMap.get(id);
+			if (!old) {
+				added.push(curr);
+			} else {
+				if (
+					old.status !== curr.status ||
+					old.title !== curr.title ||
+					JSON.stringify(old.blocks) !== JSON.stringify(curr.blocks)
+				) {
+					changed.push({
+						id,
+						oldStatus: old.status,
+						newStatus: curr.status,
+						title: curr.title,
+					});
+				}
+			}
+		}
+		for (const [id, old] of oldMap) {
+			if (!currentMap.has(id)) removed.push(old);
+		}
+
+		if (opts.json) {
+			console.log(
+				JSON.stringify({ success: true, command: "diff", ref, added, removed, changed }, null, 2),
+			);
+			return;
+		}
+
+		console.log(theme.bold(`Graph Diff (Current vs ${ref})\n`));
+		if (added.length) {
+			console.log(theme.success(`Added (${added.length})`));
+			for (const i of added) console.log(`  + ${i.id}: ${i.title}`);
+			console.log();
+		}
+		if (removed.length) {
+			console.log(theme.error(`Removed (${removed.length})`));
+			for (const i of removed) console.log(`  - ${i.id}: ${i.title}`);
+			console.log();
+		}
+		if (changed.length) {
+			console.log(theme.warning(`Changed (${changed.length})`));
+			for (const i of changed) {
+				const statusChange =
+					i.oldStatus !== i.newStatus ? ` [${i.oldStatus} -> ${i.newStatus}]` : "";
+				console.log(`  ~ ${i.id}: ${i.title}${statusChange}`);
+			}
+			console.log();
+		}
+		if (!added.length && !removed.length && !changed.length) {
+			console.log("No changes detected.");
 		}
 	});
 

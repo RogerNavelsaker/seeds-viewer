@@ -9,6 +9,9 @@ export interface GraphMetrics {
 	eigenvector: number;
 	inDegree: number;
 	outDegree: number;
+	slack: number;
+	coreNumber: number;
+	isArticulationPoint: boolean;
 	score: number;
 }
 
@@ -267,6 +270,143 @@ function findCycles(ids: string[], blocksMap: Map<string, string[]>): string[][]
 	return result;
 }
 
+function computeSlack(
+	ids: string[],
+	_blocksMap: Map<string, string[]>,
+	blockedByMap: Map<string, string[]>,
+	criticalPath: Map<string, number>,
+): Map<string, number> {
+	const es = new Map<string, number>();
+	const memo = new Map<string, number>();
+
+	const dfsES = (id: string): number => {
+		if (memo.has(id)) return memo.get(id) ?? 0;
+		const predecessors = blockedByMap.get(id) ?? [];
+		if (predecessors.length === 0) {
+			memo.set(id, 0);
+			return 0;
+		}
+		const max = Math.max(...predecessors.map(dfsES));
+		memo.set(id, max + 1);
+		return max + 1;
+	};
+
+	for (const id of ids) {
+		es.set(id, dfsES(id));
+	}
+
+	const maxCp = Array.from(criticalPath.values()).reduce((a, b) => Math.max(a, b), 0) || 1;
+	const slack = new Map<string, number>();
+
+	for (const id of ids) {
+		const nodeES = es.get(id) ?? 0;
+		const nodeCP = criticalPath.get(id) ?? 0;
+		slack.set(id, maxCp - nodeES - nodeCP);
+	}
+
+	return slack;
+}
+
+function computeKCores(
+	ids: string[],
+	blocksMap: Map<string, string[]>,
+	blockedByMap: Map<string, string[]>,
+): Map<string, number> {
+	const degree = new Map<string, number>();
+	const adj = new Map<string, Set<string>>();
+
+	for (const id of ids) {
+		const neighbors = new Set([...(blocksMap.get(id) ?? []), ...(blockedByMap.get(id) ?? [])]);
+		adj.set(id, neighbors);
+		degree.set(id, neighbors.size);
+	}
+
+	const coreNumber = new Map<string, number>();
+	const remaining = new Set(ids);
+	let k = 0;
+
+	while (remaining.size > 0) {
+		let removed = false;
+		do {
+			removed = false;
+			const toRemove: string[] = [];
+			for (const id of remaining) {
+				if ((degree.get(id) ?? 0) <= k) {
+					toRemove.push(id);
+				}
+			}
+			for (const id of toRemove) {
+				remaining.delete(id);
+				coreNumber.set(id, k);
+				for (const neighbor of adj.get(id) ?? []) {
+					degree.set(neighbor, (degree.get(neighbor) ?? 0) - 1);
+				}
+				removed = true;
+			}
+		} while (removed);
+		k++;
+	}
+
+	return coreNumber;
+}
+
+function computeArticulationPoints(
+	ids: string[],
+	blocksMap: Map<string, string[]>,
+	blockedByMap: Map<string, string[]>,
+): Set<string> {
+	const adj = new Map<string, string[]>();
+	for (const id of ids) {
+		const neighbors = Array.from(
+			new Set([...(blocksMap.get(id) ?? []), ...(blockedByMap.get(id) ?? [])]),
+		);
+		adj.set(id, neighbors);
+	}
+
+	let time = 0;
+	const discovery = new Map<string, number>();
+	const low = new Map<string, number>();
+	const parent = new Map<string, string | null>();
+	const articulation = new Set<string>();
+
+	const dfs = (u: string) => {
+		let children = 0;
+		discovery.set(u, ++time);
+		low.set(u, time);
+
+		for (const v of adj.get(u) ?? []) {
+			if (!discovery.has(v)) {
+				children++;
+				parent.set(v, u);
+				dfs(v);
+
+				low.set(u, Math.min(low.get(u) ?? 0, low.get(v) ?? 0));
+
+				if (parent.get(u) === null && children > 1) {
+					articulation.add(u);
+				}
+				if (parent.get(u) !== null && (low.get(v) ?? 0) >= (discovery.get(u) ?? 0)) {
+					articulation.add(u);
+				}
+			} else if (v !== parent.get(u)) {
+				low.set(u, Math.min(low.get(u) ?? 0, discovery.get(v) ?? 0));
+			}
+		}
+	};
+
+	for (const id of ids) {
+		parent.set(id, null);
+	}
+
+	for (const id of ids) {
+		if (!discovery.has(id)) {
+			dfs(id);
+		}
+	}
+
+	return articulation;
+}
+
 export function computeMetrics(issues: Issue[]): GraphAnalysis {
 	if (issues.length === 0) return { metrics: new Map(), density: 0, cycles: [] };
 
@@ -278,6 +418,9 @@ export function computeMetrics(issues: Issue[]): GraphAnalysis {
 	const { hubs, auths } = computeHITS(ids, blocksMap, blockedByMap);
 	const eigenvector = computeEigenvector(ids, blocksMap);
 	const cycles = findCycles(ids, blocksMap);
+	const slack = computeSlack(ids, blocksMap, blockedByMap, criticalPath);
+	const coreNumber = computeKCores(ids, blocksMap, blockedByMap);
+	const articulation = computeArticulationPoints(ids, blocksMap, blockedByMap);
 
 	let edgeCount = 0;
 	for (const deps of blocksMap.values()) edgeCount += deps.length;
@@ -310,6 +453,9 @@ export function computeMetrics(issues: Issue[]): GraphAnalysis {
 			inDegree: blocksMap.get(id)?.length ?? 0,
 			outDegree: blockedByMap.get(id)?.length ?? 0,
 			score,
+			slack: slack.get(id) ?? 0,
+			coreNumber: coreNumber.get(id) ?? 0,
+			isArticulationPoint: articulation.has(id),
 		});
 	}
 
